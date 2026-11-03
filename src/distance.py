@@ -285,28 +285,58 @@ class DistanceCalculator:
 
         return annotated
 
-    def get_proximity_alerts(self, pairwise_results):
+    def get_proximity_alerts(self, pairwise_results, detections=None):
         """
         Returns list of active collision / danger warning messages.
+        Checks both forward camera obstacles (objects directly ahead) and inter-object pairwise proximity.
         """
         alerts = []
-        for pair in pairwise_results:
-            if pair["status"] == "danger":
-                alerts.append({
-                    "severity": "CRITICAL",
-                    "message": f"COLLISION RISK: {pair['alert_text']}",
-                    "pair": pair["alert_text"],
-                    "distance": pair["distance"],
-                    "unit": pair["unit"]
-                })
-            elif pair["status"] == "warning":
-                alerts.append({
-                    "severity": "WARNING",
-                    "message": f"CLOSE PROXIMITY: {pair['alert_text']}",
-                    "pair": pair["alert_text"],
-                    "distance": pair["distance"],
-                    "unit": pair["unit"]
-                })
+
+        # 1. Forward obstacle / camera collision hazards (< danger_threshold or < warning_threshold)
+        if detections and self.unit == "meters":
+            for det in detections:
+                cam_dist = det.get("distance_cam")
+                if cam_dist is not None:
+                    cname = det.get("class_name", "Obstacle").capitalize()
+                    if cam_dist <= self.danger_threshold:
+                        alerts.append({
+                            "severity": "CRITICAL",
+                            "message": f"COLLISION IMMINENT: {cname} at {cam_dist}m ahead!",
+                            "pair": f"{cname} -> Camera",
+                            "distance": cam_dist,
+                            "unit": "m"
+                        })
+                    elif cam_dist <= self.warning_threshold:
+                        alerts.append({
+                            "severity": "WARNING",
+                            "message": f"FORWARD PROXIMITY: {cname} at {cam_dist}m ahead",
+                            "pair": f"{cname} -> Camera",
+                            "distance": cam_dist,
+                            "unit": "m"
+                        })
+
+        # 2. Inter-object pairwise proximity hazards
+        if pairwise_results:
+            for pair in pairwise_results:
+                if pair["status"] == "danger":
+                    alerts.append({
+                        "severity": "CRITICAL",
+                        "message": f"COLLISION RISK: {pair['alert_text']}",
+                        "pair": pair["alert_text"],
+                        "distance": pair["distance"],
+                        "unit": pair["unit"]
+                    })
+                elif pair["status"] == "warning":
+                    alerts.append({
+                        "severity": "WARNING",
+                        "message": f"CLOSE PROXIMITY: {pair['alert_text']}",
+                        "pair": pair["alert_text"],
+                        "distance": pair["distance"],
+                        "unit": pair["unit"]
+                    })
+
+        # Prioritize CRITICAL alerts first
+        alerts.sort(key=lambda a: 0 if a["severity"] == "CRITICAL" else 1)
         return alerts
 
     def set_unit(self, new_unit):

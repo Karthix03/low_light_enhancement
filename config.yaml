@@ -50,3 +50,9 @@ distance:
     bus: 3.2
     truck: 3.0
     default: 1.5
+
+audio:
+  enabled: true
+  cooldown_seconds: 1.5
+  critical_only: false
+  volume: 0.8

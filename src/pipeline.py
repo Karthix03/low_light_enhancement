@@ -10,6 +10,7 @@ from .enhancement import LowLightEnhancer
 from .detection import ObjectDetector
 from .monitoring import MonitoringHUD
 from .distance import DistanceCalculator
+from .audio import CollisionAudioAlert
 from .utils import load_config, logger, save_screenshot
 
 class NightVisionPipeline:
@@ -30,6 +31,7 @@ class NightVisionPipeline:
         self.detector = ObjectDetector(self.config)
         self.distance_calc = DistanceCalculator(self.config)
         self.hud = MonitoringHUD(self.config)
+        self.audio_alert = CollisionAudioAlert(self.config)
         
         self.is_running = True
 
@@ -59,9 +61,9 @@ class NightVisionPipeline:
             enh_detections = self.detector.detect(enhanced_frame)
             
             # Enrich and compute pairwise on enhanced detections for metrics & alerts
-            if self.distance_calc.enabled and len(enh_detections) >= 2:
+            if self.distance_calc.enabled:
                 pairwise = self.distance_calc.calculate_pairwise_distances(enh_detections, enhanced_frame.shape)
-                alerts = self.distance_calc.get_proximity_alerts(pairwise)
+                alerts = self.distance_calc.get_proximity_alerts(pairwise, enh_detections)
             else:
                 pairwise = []
                 alerts = []
@@ -81,7 +83,7 @@ class NightVisionPipeline:
             if self.distance_calc.enabled and len(detections) > 0:
                 self.distance_calc.compute_all_object_depths(detections, enhanced_frame.shape)
                 pairwise = self.distance_calc.calculate_pairwise_distances(detections, enhanced_frame.shape)
-                alerts = self.distance_calc.get_proximity_alerts(pairwise)
+                alerts = self.distance_calc.get_proximity_alerts(pairwise, detections)
             else:
                 pairwise = []
                 alerts = []
@@ -99,6 +101,11 @@ class NightVisionPipeline:
             enh_name = self.enhancer.method if self.enhancer.enabled else "OFF"
             top_alert = alerts[0]["message"] if alerts else None
             unit_sym = "m" if self.distance_calc.unit == "meters" else "px"
+
+            # Trigger audible warning if proximity hazard detected
+            should_play, sev = self.audio_alert.should_play(alerts)
+            if should_play:
+                self.audio_alert.play_desktop_sound(sev)
 
             display_frame = self.hud.draw_hud(
                 annotated_frame,
@@ -140,6 +147,14 @@ class NightVisionPipeline:
             return None, {"error": self.camera.error_message or "Failed to read frame."}
 
         return self.process_frame(raw_frame)
+
+    def toggle_audio(self):
+        """
+        Toggles collision audio alert system on or off.
+        """
+        self.audio_alert.enabled = not self.audio_alert.enabled
+        logger.info(f"Audio alert system toggled: Enabled = {self.audio_alert.enabled}")
+        return self.audio_alert.enabled
 
     def toggle_enhancement(self):
         """

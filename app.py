@@ -23,6 +23,7 @@ from src.enhancement import LowLightEnhancer
 from src.detection import ObjectDetector
 from src.distance import DistanceCalculator
 from src.monitoring import MonitoringHUD
+from src.audio import CollisionAudioAlert
 
 st.set_page_config(
     page_title="NightVisionAI Dashboard",
@@ -74,7 +75,7 @@ def process_single_frame(frame, enhancer, detector, distance_calc, hud, sbs_mode
         raw_dets = detector.detect(frame)
         enh_dets = detector.detect(enhanced)
         pairwise = distance_calc.calculate_pairwise_distances(enh_dets, enhanced.shape) if distance_calc.enabled else []
-        alerts = distance_calc.get_proximity_alerts(pairwise)
+        alerts = distance_calc.get_proximity_alerts(pairwise, enh_dets)
         display_bgr = hud.create_side_by_side(
             frame, raw_dets,
             enhanced, enh_dets,
@@ -246,6 +247,34 @@ def main():
     sbs_mode = st.sidebar.checkbox("Side-by-Side Comparison Mode", value=False)
     config["display"]["side_by_side"] = sbs_mode
 
+    st.sidebar.markdown("---")
+    st.sidebar.header("🔊 Audio Collision Alarm")
+    audio_enabled = st.sidebar.checkbox(
+        "Enable Audio Alarm", value=True,
+        help="Plays an audible warning chime when vehicles or pedestrians are dangerously close."
+    )
+    audio_crit_only = st.sidebar.checkbox(
+        "Critical Danger Only", value=False,
+        help="Play sound only on Critical Collision Risk (< danger threshold), ignoring amber warnings."
+    )
+    audio_vol = st.sidebar.slider("Alarm Volume", 0.1, 1.0, 0.8, 0.05)
+    audio_cooldown = st.sidebar.slider(
+        "Alarm Throttle (seconds)", 0.5, 3.0, 1.5, 0.5,
+        help="Cooldown interval between sound alerts during continuous hazard."
+    )
+
+    config.setdefault("audio", {})
+    config["audio"]["enabled"] = audio_enabled
+    config["audio"]["critical_only"] = audio_crit_only
+    config["audio"]["volume"] = audio_vol
+    config["audio"]["cooldown_seconds"] = audio_cooldown
+
+    audio_alert = CollisionAudioAlert(config)
+
+    if st.sidebar.button("🔔 Test Notification Sound"):
+        st.sidebar.success("Playing test alarm chime...")
+        st.markdown(audio_alert.get_browser_audio_html("CRITICAL"), unsafe_allow_html=True)
+
     # =========================================================================
     # MAIN LAYOUT METRICS
     # =========================================================================
@@ -257,6 +286,7 @@ def main():
     metric_enh = col5.metric("Enhancer", config["enhancement"]["method"].upper() if enh_enabled else "OFF")
 
     proximity_box = st.empty()
+    audio_container = st.empty()
     status_box = st.empty()
     video_placeholder = st.empty()
 
@@ -288,6 +318,10 @@ def main():
                     proximity_box.error(f"🚨 {top['message']}")
                 else:
                     proximity_box.warning(f"⚠️ {top['message']}")
+
+                should_sound, sev = audio_alert.should_play(alerts)
+                if should_sound:
+                    audio_container.markdown(audio_alert.get_browser_audio_html(sev), unsafe_allow_html=True)
 
             display_rgb = cv2.cvtColor(display_bgr, cv2.COLOR_BGR2RGB)
             video_placeholder.image(display_rgb, channels="RGB", use_container_width=True)
@@ -385,7 +419,7 @@ def main():
                     enh_dets = detector.detect(enhanced_frame)
                     
                     pairwise = distance_calc.calculate_pairwise_distances(enh_dets, enhanced_frame.shape) if distance_calc.enabled else []
-                    alerts = distance_calc.get_proximity_alerts(pairwise)
+                    alerts = distance_calc.get_proximity_alerts(pairwise, enh_dets)
 
                     display_bgr = hud.create_side_by_side(
                         raw_frame, raw_dets,
@@ -400,7 +434,7 @@ def main():
                     if distance_calc.enabled and len(dets) > 0:
                         distance_calc.compute_all_object_depths(dets, enhanced_frame.shape)
                         pairwise = distance_calc.calculate_pairwise_distances(dets, enhanced_frame.shape)
-                        alerts = distance_calc.get_proximity_alerts(pairwise)
+                        alerts = distance_calc.get_proximity_alerts(pairwise, dets)
                     else:
                         pairwise = []
                         alerts = []
@@ -449,8 +483,13 @@ def main():
                         proximity_box.error(f"🚨 {top['message']}")
                     else:
                         proximity_box.warning(f"⚠️ {top['message']}")
+
+                    should_sound, sev = audio_alert.should_play(alerts)
+                    if should_sound:
+                        audio_container.markdown(audio_alert.get_browser_audio_html(sev), unsafe_allow_html=True)
                 else:
                     proximity_box.empty()
+                    audio_container.empty()
 
                 time.sleep(0.01)
 

@@ -68,6 +68,7 @@ def main():
     print("  [E] Toggle Enhancement ON/OFF")
     print("  [M] Cycle Enhancement Method (CLAHE -> Gamma -> Zero-DCE -> None)")
     print("  [D] Toggle Distance Calculator ON/OFF")
+    print("  [A] Toggle Collision Audio Alarm ON/OFF")
     print("  [U] Toggle Distance Unit (Meters <-> Pixels)")
     print("  [C] Toggle Side-by-Side Comparison Split Screen")
     print("  [S] Save Frame Screenshot to outputs/")
@@ -110,6 +111,9 @@ def main():
             elif key in [ord('d'), ord('D')]:
                 dist_state = pipeline.toggle_distance_calc()
                 print(f"[HUD] Distance Calculator: {'ENABLED' if dist_state else 'DISABLED'}")
+            elif key in [ord('a'), ord('A')]:
+                audio_state = pipeline.toggle_audio()
+                print(f"[HUD] Collision Audio Alarm: {'ENABLED' if audio_state else 'MUTED'}")
             elif key in [ord('u'), ord('U')]:
                 unit = pipeline.toggle_distance_unit()
                 print(f"[HUD] Distance Measurement Unit: {unit.upper()}")
