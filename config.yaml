@@ -16,8 +16,8 @@ enhancement:
   - 8
   weights_path: models/zero_dce.pth
 detection:
-  model_name: models/trained_night_yolov8.pt
-  conf_threshold: 0.35
+  model_name: yolov8n.pt
+  conf_threshold: 0.30
   iou_threshold: 0.45
   device: auto
   img_size: 640

@@ -142,11 +142,14 @@ class DistanceCalculator:
                     }, ...
                 ]
         """
-        if not self.enabled or len(detections) < 2:
+        if not self.enabled or not detections:
             return []
 
-        # Ensure all detections have 3D and anchor coordinates
+        # Ensure all detected objects have monocular 3D coordinates and camera distances
         self.compute_all_object_depths(detections, frame_shape)
+
+        if len(detections) < 2:
+            return []
 
         pairs = []
         n = len(detections)

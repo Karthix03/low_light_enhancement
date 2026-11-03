@@ -147,22 +147,28 @@ class MonitoringHUD:
         Renders a side-by-side split screen comparing raw low-light vs enhanced image,
         with bounding boxes, labels, and inter-object distance overlays on both sides.
         """
-        # Annotate raw frame
+        # Compute distances and annotate raw frame
+        raw_pairs = []
+        if distance_calc and distance_calc.enabled and raw_detections:
+            raw_pairs = distance_calc.calculate_pairwise_distances(raw_detections, raw_frame.shape)
+
         annotated_raw, counts_raw = self.draw_detections(
             raw_frame, raw_detections,
             show_distance=(distance_calc.enabled if distance_calc else False)
         )
-        if distance_calc and distance_calc.enabled and len(raw_detections) >= 2:
-            raw_pairs = distance_calc.calculate_pairwise_distances(raw_detections, raw_frame.shape)
+        if distance_calc and distance_calc.enabled and raw_pairs:
             annotated_raw = distance_calc.draw_distance_overlays(annotated_raw, raw_pairs)
 
-        # Annotate enhanced frame
+        # Compute distances and annotate enhanced frame
+        enh_pairs = []
+        if distance_calc and distance_calc.enabled and enh_detections:
+            enh_pairs = distance_calc.calculate_pairwise_distances(enh_detections, enh_frame.shape)
+
         annotated_enh, counts_enh = self.draw_detections(
             enh_frame, enh_detections,
             show_distance=(distance_calc.enabled if distance_calc else False)
         )
-        if distance_calc and distance_calc.enabled and len(enh_detections) >= 2:
-            enh_pairs = distance_calc.calculate_pairwise_distances(enh_detections, enh_frame.shape)
+        if distance_calc and distance_calc.enabled and enh_pairs:
             annotated_enh = distance_calc.draw_distance_overlays(annotated_enh, enh_pairs)
         
         # Header banners for each side

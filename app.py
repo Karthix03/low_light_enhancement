@@ -54,6 +54,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def format_closest_distance(pairwise, dets):
+    """Formats closest distance string: pairwise inter-object distance if pairs exist, else camera-to-object radial distance."""
+    if pairwise:
+        return f"{pairwise[0]['distance']}{pairwise[0]['unit']}"
+    if dets:
+        cam_dists = [d.get("distance_cam") for d in dets if d.get("distance_cam") is not None]
+        if cam_dists:
+            return f"{min(cam_dists):.2f}m (Cam)"
+    return "--"
+
 def process_single_frame(frame, enhancer, detector, distance_calc, hud, sbs_mode=False):
     """Processes a single BGR frame and returns annotated display frame, metrics, and alerts."""
     start_t = time.time()
@@ -108,7 +118,7 @@ def process_single_frame(frame, enhancer, detector, distance_calc, hud, sbs_mode
         total_count = len(dets)
 
     latency_ms = (time.time() - start_t) * 1000.0
-    return display_bgr, total_count, pairwise, alerts, latency_ms
+    return display_bgr, total_count, pairwise, alerts, latency_ms, (enh_dets if sbs_mode else dets)
 
 def main():
     st.markdown('<div class="main-title">🌙 NightVisionAI: Real-Time Road Monitoring</div>', unsafe_allow_html=True)
@@ -197,7 +207,7 @@ def main():
 
     st.sidebar.markdown("---")
     st.sidebar.header("🤖 YOLO Object Detection")
-    conf_thresh = st.sidebar.slider("Confidence Threshold", 0.1, 0.9, 0.35, 0.05)
+    conf_thresh = st.sidebar.slider("Confidence Threshold", 0.05, 0.90, float(config.get("detection", {}).get("conf_threshold", 0.30)), 0.05, help="Lower threshold detects dim/distant objects; higher values reduce false positives.")
     config["detection"]["conf_threshold"] = conf_thresh
     
     device_opt = st.sidebar.selectbox("Processing Hardware", ["Auto (CUDA/CPU)", "CPU Only"], index=0)
@@ -263,11 +273,11 @@ def main():
             img_pil = Image.open(snapshot_file).convert("RGB")
             frame_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
-            display_bgr, total_count, pairwise, alerts, lat_ms = process_single_frame(
+            display_bgr, total_count, pairwise, alerts, lat_ms, active_dets = process_single_frame(
                 frame_bgr, enhancer, detector, distance_calc, hud, sbs_mode=sbs_mode
             )
 
-            min_dist_str = f"{pairwise[0]['distance']}{pairwise[0]['unit']}" if pairwise else "N/A"
+            min_dist_str = format_closest_distance(pairwise, active_dets)
             metric_lat.metric("Latency", f"{lat_ms:.0f} ms")
             metric_objs.metric("Objects", f"{total_count}")
             metric_dist.metric("Closest Dist", min_dist_str)
@@ -306,11 +316,11 @@ def main():
             img_pil = Image.open(uploaded_file).convert("RGB")
             frame_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
-            display_bgr, total_count, pairwise, alerts, lat_ms = process_single_frame(
+            display_bgr, total_count, pairwise, alerts, lat_ms, active_dets = process_single_frame(
                 frame_bgr, enhancer, detector, distance_calc, hud, sbs_mode=sbs_mode
             )
 
-            min_dist_str = f"{pairwise[0]['distance']}{pairwise[0]['unit']}" if pairwise else "N/A"
+            min_dist_str = format_closest_distance(pairwise, active_dets)
             metric_lat.metric("Latency", f"{lat_ms:.0f} ms")
             metric_objs.metric("Objects", f"{total_count}")
             metric_dist.metric("Closest Dist", min_dist_str)
@@ -425,7 +435,7 @@ def main():
                 fps_val = hud.calculate_fps()
 
                 # Update live metrics
-                min_dist_str = f"{pairwise[0]['distance']}{pairwise[0]['unit']}" if pairwise else "N/A"
+                min_dist_str = format_closest_distance(pairwise, enh_dets if sbs_mode else dets)
                 metric_fps.metric("Live FPS", f"{fps_val:.1f}")
                 metric_lat.metric("Latency", f"{elapsed_ms:.0f} ms")
                 metric_objs.metric("Objects", f"{total_count}")

@@ -1,6 +1,7 @@
 """
 YOLO Object Detection Module for NightVisionAI
 Uses Ultralytics YOLOv8 lightweight models for real-time detection of pedestrians and vehicles.
+Features automatic fallback to base 'yolov8n.pt' if custom weights are missing or incompatible.
 """
 
 import os
@@ -34,7 +35,7 @@ class ObjectDetector:
         det_cfg = config.get("detection", {})
         
         self.model_name = det_cfg.get("model_name", "yolov8n.pt")
-        self.conf_threshold = float(det_cfg.get("conf_threshold", 0.35))
+        self.conf_threshold = float(det_cfg.get("conf_threshold", 0.30))
         self.iou_threshold = float(det_cfg.get("iou_threshold", 0.45))
         self.requested_device = det_cfg.get("device", "auto")
         self.img_size = int(det_cfg.get("img_size", 640))
@@ -51,15 +52,40 @@ class ObjectDetector:
     def _load_model(self):
         """
         Loads pretrained YOLO weights into memory on specified device (CPU/CUDA).
+        Includes automatic fallback to standard 'yolov8n.pt' if custom model path is missing.
         """
         if not ULTRALYTICS_AVAILABLE:
             logger.error("Ultralytics library is not installed. Object detection disabled.")
             return
 
+        target_model = self.model_name
+        
+        # Check if configured model is a custom file path that does not exist
+        if (target_model.endswith(".pt") or "/" in target_model or "\\" in target_model) and not os.path.exists(target_model):
+            logger.warning(f"Configured model '{target_model}' not found on disk. Falling back to standard 'yolov8n.pt'.")
+            target_model = "yolov8n.pt"
+            self.model_name = target_model
+
         try:
-            logger.info(f"Loading YOLO model '{self.model_name}' on device '{self.device}'...")
-            self.model = YOLO(self.model_name)
-            
+            logger.info(f"Loading YOLO model '{target_model}' on device '{self.device}'...")
+            self.model = YOLO(target_model)
+            self.model_name = target_model
+        except Exception as e:
+            logger.error(f"Failed to load YOLO model '{target_model}': {e}")
+            if target_model != "yolov8n.pt":
+                logger.info("Attempting automatic fallback to standard 'yolov8n.pt'...")
+                try:
+                    self.model = YOLO("yolov8n.pt")
+                    self.model_name = "yolov8n.pt"
+                except Exception as fallback_err:
+                    logger.error(f"Fallback to 'yolov8n.pt' also failed: {fallback_err}")
+                    self.model = None
+                    return
+            else:
+                self.model = None
+                return
+
+        try:
             # Map configured class names to numeric class IDs in loaded model
             names_dict = self.model.names if hasattr(self.model, 'names') else COCO_CLASSES
             
@@ -70,8 +96,8 @@ class ObjectDetector:
                     
             logger.info(f"YOLO model initialized successfully. Filtered class IDs: {self.target_class_ids}")
         except Exception as e:
-            logger.error(f"Failed to load YOLO model '{self.model_name}': {e}")
-            self.model = None
+            logger.warning(f"Could not filter class IDs ({e}). Retaining full model predictions.")
+            self.target_class_ids = []
 
     def detect(self, frame_bgr):
         """
