@@ -48,6 +48,8 @@ data/*.jpg
 data/*.png
 !data/README.md
 !data/sample_night.jpg
+!data/sample_night.mp4
+!data/realistic_night_road.jpg
 outputs/*
 !outputs/README.md
 

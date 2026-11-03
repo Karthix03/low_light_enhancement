@@ -2,13 +2,16 @@
 Streamlit Web Application Dashboard for NightVisionAI
 Provides an interactive graphical browser interface to configure camera, enhancement,
 and YOLO detection parameters while rendering live night monitoring feed and analytics.
+Cloud-ready with Sample Video Demo, File Uploader, and Browser Device Camera support.
 """
 
 import os
 import sys
 import time
+import tempfile
 import cv2
 import numpy as np
+from PIL import Image
 import streamlit as st
 
 # Add project root to Python path
@@ -51,6 +54,62 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def process_single_frame(frame, enhancer, detector, distance_calc, hud, sbs_mode=False):
+    """Processes a single BGR frame and returns annotated display frame, metrics, and alerts."""
+    start_t = time.time()
+    
+    enhanced = enhancer.enhance(frame) if enhancer.enabled else frame
+    
+    if sbs_mode:
+        raw_dets = detector.detect(frame)
+        enh_dets = detector.detect(enhanced)
+        pairwise = distance_calc.calculate_pairwise_distances(enh_dets, enhanced.shape) if distance_calc.enabled else []
+        alerts = distance_calc.get_proximity_alerts(pairwise)
+        display_bgr = hud.create_side_by_side(
+            frame, raw_dets,
+            enhanced, enh_dets,
+            enh_method=enhancer.method if enhancer.enabled else "OFF",
+            distance_calc=distance_calc
+        )
+        total_count = len(enh_dets)
+        class_counts = {}
+        for d in enh_dets:
+            c = d["class_name"]
+            class_counts[c] = class_counts.get(c, 0) + 1
+    else:
+        dets = detector.detect(enhanced)
+        if distance_calc.enabled and len(dets) > 0:
+            distance_calc.compute_all_object_depths(dets, enhanced.shape)
+            pairwise = distance_calc.calculate_pairwise_distances(dets, enhanced.shape)
+            alerts = distance_calc.get_proximity_alerts(pairwise)
+        else:
+            pairwise = []
+            alerts = []
+
+        annotated, class_counts = hud.draw_detections(
+            enhanced, dets,
+            show_distance=distance_calc.enabled
+        )
+        if distance_calc.enabled and pairwise:
+            annotated = distance_calc.draw_distance_overlays(annotated, pairwise)
+
+        top_alert = alerts[0]["message"] if alerts else None
+        unit_sym = "m" if distance_calc.unit == "meters" else "px"
+
+        display_bgr = hud.draw_hud(
+            annotated, class_counts,
+            source_info="Snapshot",
+            enh_method=enhancer.method if enhancer.enabled else "OFF",
+            device=detector.device,
+            dist_active=distance_calc.enabled,
+            dist_unit=unit_sym,
+            proximity_alert=top_alert
+        )
+        total_count = len(dets)
+
+    latency_ms = (time.time() - start_t) * 1000.0
+    return display_bgr, total_count, pairwise, alerts, latency_ms
+
 def main():
     st.markdown('<div class="main-title">🌙 NightVisionAI: Real-Time Road Monitoring</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-title">Low-Light Enhancement, YOLO Detection & Inter-Object Distance Calculator</div>', unsafe_allow_html=True)
@@ -60,29 +119,60 @@ def main():
     # =========================================================================
     # SIDEBAR CONTROLS
     # =========================================================================
-    st.sidebar.header("📹 Camera Configuration")
+    st.sidebar.header("📹 Camera & Stream Source")
     source_choice = st.sidebar.selectbox(
-        "Camera Source Type",
-        ["DroidCam Desktop App", "Webcam", "IP Stream / WiFi URL", "Synthetic (Test Mode)", "Prerecorded Video"],
-        index=0
+        "Select Video / Ingestion Source",
+        [
+            "🎬 Sample Night Video (Cloud Demo)",
+            "📁 Upload Video or Image File",
+            "📸 Browser Device Camera (Snapshot)",
+            "🤖 Synthetic Generator (Test Mode)",
+            "📹 Local Webcam (USB Hardware)",
+            "📱 DroidCam Desktop App",
+            "🌐 IP Stream / WiFi URL"
+        ],
+        index=0,
+        help="Use 'Sample Night Video' or 'Upload File' when accessing via Cloud (Streamlit Community Cloud). Select 'Webcam' or 'DroidCam' when running locally on your laptop."
     )
 
-    if source_choice == "DroidCam Desktop App":
-        config["camera"]["source_type"] = "droidcam_app"
-    elif source_choice == "Synthetic (Test Mode)":
+    uploaded_file = None
+    snapshot_file = None
+
+    if source_choice == "🎬 Sample Night Video (Cloud Demo)":
+        config["camera"]["source_type"] = "video"
+        sample_path = "data/sample_night.mp4"
+        if not os.path.exists(sample_path):
+            sample_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sample_night.mp4")
+        config["camera"]["video_path"] = sample_path
+        st.sidebar.info("💡 Streaming pre-recorded nighttime traffic clip. Continuous loop active.")
+
+    elif source_choice == "📁 Upload Video or Image File":
+        uploaded_file = st.sidebar.file_uploader(
+            "Choose a video (.mp4, .avi, .mov) or image (.jpg, .png)",
+            type=["mp4", "avi", "mov", "jpg", "jpeg", "png"]
+        )
+
+    elif source_choice == "📸 Browser Device Camera (Snapshot)":
+        st.sidebar.info("Take a photo using your laptop/phone camera right through your browser.")
+        snapshot_file = st.camera_input("Capture Road Scene Snapshot")
+
+    elif source_choice == "🤖 Synthetic Generator (Test Mode)":
         config["camera"]["source_type"] = "synthetic"
-    elif source_choice == "Webcam":
+
+    elif source_choice == "📹 Local Webcam (USB Hardware)":
         config["camera"]["source_type"] = "webcam"
-        cam_idx = st.sidebar.number_input("Webcam Index", min_value=0, max_value=5, value=0)
+        cam_idx = st.sidebar.number_input("Webcam Hardware Index", min_value=0, max_value=5, value=0)
         config["camera"]["camera_index"] = int(cam_idx)
-    elif source_choice == "IP Stream / WiFi URL":
+        st.sidebar.caption("Requires a physical webcam connected to the host machine.")
+
+    elif source_choice == "📱 DroidCam Desktop App":
+        config["camera"]["source_type"] = "droidcam_app"
+        st.sidebar.caption("Requires DroidCam client active on your local Windows PC.")
+
+    elif source_choice == "🌐 IP Stream / WiFi URL":
         config["camera"]["source_type"] = "ip_camera"
         stream_url = st.sidebar.text_input("Stream URL", value="http://10.110.18.126:4747/video")
         config["camera"]["stream_url"] = stream_url
-    elif source_choice == "Prerecorded Video":
-        config["camera"]["source_type"] = "video"
-        v_path = st.sidebar.text_input("Video File Path", value="data/sample_night.mp4")
-        config["camera"]["video_path"] = v_path
 
     st.sidebar.markdown("---")
     st.sidebar.header("✨ Low-Light Enhancement")
@@ -147,7 +237,7 @@ def main():
     config["display"]["side_by_side"] = sbs_mode
 
     # =========================================================================
-    # MAIN LAYOUT METRICS & VIDEO STREAM CONTAINER
+    # MAIN LAYOUT METRICS
     # =========================================================================
     col1, col2, col3, col4, col5 = st.columns(5)
     metric_fps = col1.metric("Live FPS", "0.0")
@@ -157,9 +247,96 @@ def main():
     metric_enh = col5.metric("Enhancer", config["enhancement"]["method"].upper() if enh_enabled else "OFF")
 
     proximity_box = st.empty()
-    video_placeholder = st.empty()
     status_box = st.empty()
+    video_placeholder = st.empty()
 
+    # =========================================================================
+    # MODE A: BROWSER WEBCAM SNAPSHOT MODE
+    # =========================================================================
+    if source_choice == "📸 Browser Device Camera (Snapshot)":
+        if snapshot_file is not None:
+            enhancer = LowLightEnhancer(config)
+            detector = ObjectDetector(config)
+            distance_calc = DistanceCalculator(config)
+            hud = MonitoringHUD(config)
+
+            img_pil = Image.open(snapshot_file).convert("RGB")
+            frame_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+            display_bgr, total_count, pairwise, alerts, lat_ms = process_single_frame(
+                frame_bgr, enhancer, detector, distance_calc, hud, sbs_mode=sbs_mode
+            )
+
+            min_dist_str = f"{pairwise[0]['distance']}{pairwise[0]['unit']}" if pairwise else "N/A"
+            metric_lat.metric("Latency", f"{lat_ms:.0f} ms")
+            metric_objs.metric("Objects", f"{total_count}")
+            metric_dist.metric("Closest Dist", min_dist_str)
+
+            if alerts:
+                top = alerts[0]
+                if top["severity"] == "CRITICAL":
+                    proximity_box.error(f"🚨 {top['message']}")
+                else:
+                    proximity_box.warning(f"⚠️ {top['message']}")
+
+            display_rgb = cv2.cvtColor(display_bgr, cv2.COLOR_BGR2RGB)
+            video_placeholder.image(display_rgb, channels="RGB", use_container_width=True)
+            status_box.success("Snapshot successfully processed through AI perception pipeline!")
+        else:
+            status_box.info("👆 Use the camera widget above to take a photo of a vehicle or road scene.")
+        return
+
+    # =========================================================================
+    # MODE B: UPLOADED FILE MODE (IMAGE OR VIDEO)
+    # =========================================================================
+    if source_choice == "📁 Upload Video or Image File":
+        if uploaded_file is None:
+            status_box.info("👈 Upload a night video or image from the sidebar to begin analysis.")
+            return
+
+        is_video = uploaded_file.name.lower().endswith((".mp4", ".avi", ".mov"))
+
+        if not is_video:
+            # Process uploaded image once
+            enhancer = LowLightEnhancer(config)
+            detector = ObjectDetector(config)
+            distance_calc = DistanceCalculator(config)
+            hud = MonitoringHUD(config)
+
+            img_pil = Image.open(uploaded_file).convert("RGB")
+            frame_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+            display_bgr, total_count, pairwise, alerts, lat_ms = process_single_frame(
+                frame_bgr, enhancer, detector, distance_calc, hud, sbs_mode=sbs_mode
+            )
+
+            min_dist_str = f"{pairwise[0]['distance']}{pairwise[0]['unit']}" if pairwise else "N/A"
+            metric_lat.metric("Latency", f"{lat_ms:.0f} ms")
+            metric_objs.metric("Objects", f"{total_count}")
+            metric_dist.metric("Closest Dist", min_dist_str)
+
+            if alerts:
+                top = alerts[0]
+                if top["severity"] == "CRITICAL":
+                    proximity_box.error(f"🚨 {top['message']}")
+                else:
+                    proximity_box.warning(f"⚠️ {top['message']}")
+
+            display_rgb = cv2.cvtColor(display_bgr, cv2.COLOR_BGR2RGB)
+            video_placeholder.image(display_rgb, channels="RGB", use_container_width=True)
+            status_box.success(f"Analyzed uploaded image: {uploaded_file.name}")
+            return
+        else:
+            # Save uploaded video to temporary file for OpenCV VideoCapture
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+            tfile.write(uploaded_file.read())
+            tfile.close()
+            config["camera"]["source_type"] = "video"
+            config["camera"]["video_path"] = tfile.name
+
+    # =========================================================================
+    # MODE C: CONTINUOUS STREAMING (SAMPLE VIDEO, SYNTHETIC, WEBCAM, DROIDCAM)
+    # =========================================================================
     run_pipeline = st.button("🚀 Start Live Monitoring Feed", type="primary")
 
     if run_pipeline:
@@ -170,10 +347,14 @@ def main():
         hud = MonitoringHUD(config)
 
         if not camera.is_opened():
-            status_box.error(f"Failed to open camera source. Details: {camera.error_message}")
+            status_box.error(
+                f"⚠️ Unable to open camera source: {camera.error_message}\n\n"
+                "💡 **Note for Cloud Hosting:** Cloud servers (Streamlit Community Cloud) do not have physical USB webcams plugged in. "
+                "Please select **'🎬 Sample Night Video (Cloud Demo)'**, **'📁 Upload Video or Image File'**, or **'📸 Browser Device Camera'** in the sidebar!"
+            )
             return
 
-        status_box.success("Camera connected! Stream processing active...")
+        status_box.success("Source connected! Stream processing active...")
         stop_btn = st.button("⏹ Stop Stream")
 
         try:
