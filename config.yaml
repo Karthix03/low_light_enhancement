@@ -1,0 +1,52 @@
+camera:
+  source_type: droidcam_app
+  camera_index: 0
+  stream_url: http://10.110.18.126:4747/video
+  video_path: data/sample_night.mp4
+  frame_width: 640
+  frame_height: 480
+  fps: 30
+enhancement:
+  enabled: true
+  method: clahe
+  gamma_value: 1.8
+  clahe_clip_limit: 2.5
+  clahe_tile_grid:
+  - 8
+  - 8
+  weights_path: models/zero_dce.pth
+detection:
+  model_name: models/trained_night_yolov8.pt
+  conf_threshold: 0.35
+  iou_threshold: 0.45
+  device: auto
+  img_size: 640
+  target_classes:
+  - person
+  - bicycle
+  - car
+  - motorcycle
+  - bus
+  - truck
+display:
+  show_fps: true
+  show_counts: true
+  show_labels: true
+  side_by_side: false
+  output_dir: outputs
+distance:
+  enabled: true
+  unit: meters
+  focal_length: 700
+  danger_threshold: 1.5
+  warning_threshold: 3.0
+  max_pairs: 6
+  show_camera_distance: true
+  real_heights:
+    person: 1.7
+    bicycle: 1.05
+    car: 1.5
+    motorcycle: 1.2
+    bus: 3.2
+    truck: 3.0
+    default: 1.5

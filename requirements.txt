@@ -1,0 +1,15 @@
+# Core Dependencies for Low-Light Enhancement & Object Detection
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+pillow>=10.0.0
+matplotlib>=3.7.0
+
+# Deep Learning Frameworks & Models
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0
+
+# Optional Web Dashboard & Testing
+streamlit>=1.28.0
+pytest>=7.4.0

@@ -1,0 +1,59 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# PyTorch / YOLO weights & large models
+*.pt
+*.onnx
+*.engine
+models/*.pt
+models/*.pth
+models/*.bin
+runs/
+models/runs/
+.pytest_cache/
+*.cache
+
+# Data & outputs (keep READMEs, ignore video/image outputs)
+data/*.mp4
+data/*.avi
+data/*.jpg
+data/*.png
+!data/README.md
+!data/sample_night.jpg
+outputs/*
+!outputs/README.md
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

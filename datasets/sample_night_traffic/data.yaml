@@ -1,0 +1,12 @@
+# Sample Night Traffic Dataset Configuration for YOLOv8
+path: C:/Users/karth/OneDrive/Desktop/Project(Sem 7)/datasets/sample_night_traffic
+train: train/images
+val: val/images
+
+names:
+  0: person
+  1: bicycle
+  2: car
+  3: motorcycle
+  4: bus
+  5: truck
